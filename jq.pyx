@@ -51,30 +51,10 @@ cdef extern from "jq.h":
     
 
 def jq(object program):
-    cdef object program_bytes_obj = program.encode("utf8")
-    cdef char* program_bytes = program_bytes_obj
-    cdef jq_state *jq = jq_init()
-    if not jq:
-        raise Exception("jq_init failed")
-    
-    cdef _ErrorStore error_store = _ErrorStore.__new__(_ErrorStore)
-    error_store.clear()
-    
-    jq_set_error_cb(jq, store_error, <void*>error_store)
-    
-    cdef int compiled = jq_compile(jq, program_bytes)
-    
-    if error_store.has_errors():
-        raise ValueError(error_store.error_string())
-
-    # TODO: unset error callback?
-    
-    if not compiled:
-        raise ValueError("program was not valid")
+    cdef object program_bytes = program.encode("utf8")
     
     cdef _Program wrapped_program = _Program.__new__(_Program)
-    wrapped_program._jq = jq
-    wrapped_program._error_store = error_store
+    wrapped_program._program_bytes = program_bytes
     return wrapped_program
 
 
@@ -107,23 +87,36 @@ class EmptyValue(object):
 _NO_VALUE = EmptyValue()
 
 cdef class _Program(object):
-    cdef jq_state* _jq
-    cdef _ErrorStore _error_store
-
-#~     def __dealloc__(self):
-#~         jq_teardown(&self._jq)
+    cdef object _program_bytes
     
     def execute(self, value=_NO_VALUE, text=_NO_VALUE):
+        cdef jq_state *jq = jq_init()
+        if not jq:
+            raise Exception("jq_init failed")
+        
+        cdef _ErrorStore error_store = _ErrorStore.__new__(_ErrorStore)
+        error_store.clear()
+        
+        jq_set_error_cb(jq, store_error, <void*>error_store)
+        
+        cdef int compiled = jq_compile(jq, self._program_bytes)
+        
+        if error_store.has_errors():
+            raise ValueError(error_store.error_string())
+
+        # TODO: unset error callback?
+        
+        if not compiled:
+            raise ValueError("program was not valid")
+        
         if (value is _NO_VALUE) == (text is _NO_VALUE):
             raise ValueError("Either the value or text argument should be set")
         string_input = text if text is not _NO_VALUE else json.dumps(value)
         
-        self._error_store.clear()
-        
         # TODO: handle interleaved calls
         
         cdef _Result result = _Result.__new__(_Result)
-        result._execute(self._jq, string_input)
+        result._execute(jq, string_input)
         return result
 
 
@@ -133,6 +126,10 @@ cdef class _Result(object):
     cdef object _bytes_input
     cdef bint _ready
     cdef bint _done
+
+    def __dealloc__(self):
+        jq_teardown(&self._jq)
+        jv_parser_free(self._parser)
     
     cdef void _execute(self, jq_state* jq, object string_input):
         self._jq = jq
