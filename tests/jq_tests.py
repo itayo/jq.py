@@ -80,6 +80,19 @@ def can_treat_execute_result_as_iterable():
 
 
 @istest
+def can_execute_same_program_again_before_consuming_output_of_first_execution():
+    program = jq(".[]+1")
+    first = program.execute([1, 2, 3])
+    assert_equal(2, next(first))
+    second = program.execute([11, 12, 13])
+    assert_equal(12, next(second))
+    assert_equal(3, next(first))
+    assert_equal(4, next(first))
+    assert_equal(13, next(second))
+    assert_equal(14, next(second))
+
+
+@istest
 def multiple_inputs_in_raw_input_are_separated_by_newlines():
     assert_equal(
         [2, 3, 4],
