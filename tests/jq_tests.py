@@ -4,14 +4,14 @@ from __future__ import unicode_literals
 
 from nose.tools import istest, assert_equal, assert_raises
 
-from jq import jq
+from jq import execute, jq
 
 
 @istest
 def output_of_dot_operator_is_input():
     assert_equal(
         "42",
-        jq(".").transform("42")
+        jq(".").execute("42").first()
     )
 
 
@@ -19,7 +19,7 @@ def output_of_dot_operator_is_input():
 def can_add_one_to_each_element_of_an_array():
     assert_equal(
         [2, 3, 4],
-        jq("[.[]+1]").transform([1, 2, 3])
+        jq("[.[]+1]").execute([1, 2, 3]).first()
     )
 
 
@@ -27,7 +27,7 @@ def can_add_one_to_each_element_of_an_array():
 def can_use_regexes():
     assert_equal(
         True,
-        jq('test(".*")').transform("42")
+        jq('test(".*")').execute("42").first()
     )
 
 
@@ -35,7 +35,7 @@ def can_use_regexes():
 def input_string_is_parsed_to_json_if_raw_input_is_true():
     assert_equal(
         42,
-        jq(".").transform(text="42")
+        jq(".").execute(text="42").first()
     )
 
 
@@ -43,7 +43,7 @@ def input_string_is_parsed_to_json_if_raw_input_is_true():
 def output_is_serialised_to_json_string_if_text_output_is_true():
     assert_equal(
         '"42"',
-        jq(".").transform("42", text_output=True)
+        jq(".").execute("42").text()
     )
 
 
@@ -51,7 +51,7 @@ def output_is_serialised_to_json_string_if_text_output_is_true():
 def elements_in_text_output_are_separated_by_newlines():
     assert_equal(
         "1\n2\n3",
-        jq(".[]").transform([1, 2, 3], text_output=True)
+        jq(".[]").execute([1, 2, 3]).text()
     )
 
 
@@ -59,7 +59,7 @@ def elements_in_text_output_are_separated_by_newlines():
 def first_output_element_is_returned_if_multiple_output_is_false_but_there_are_multiple_output_elements():
     assert_equal(
         2,
-        jq(".[]+1").transform([1, 2, 3])
+        jq(".[]+1").execute([1, 2, 3]).first()
     )
 
 
@@ -67,7 +67,7 @@ def first_output_element_is_returned_if_multiple_output_is_false_but_there_are_m
 def multiple_output_elements_are_returned_if_multiple_output_is_true():
     assert_equal(
         [2, 3, 4],
-        jq(".[]+1").transform([1, 2, 3], multiple_output=True)
+        jq(".[]+1").execute([1, 2, 3]).all()
     )
 
 
@@ -75,7 +75,7 @@ def multiple_output_elements_are_returned_if_multiple_output_is_true():
 def multiple_inputs_in_raw_input_are_separated_by_newlines():
     assert_equal(
         [2, 3, 4],
-        jq(".+1").transform(text="1\n2\n3", multiple_output=True)
+        jq(".+1").execute(text="1\n2\n3").all()
     )
 
 
@@ -93,7 +93,7 @@ def value_error_is_raised_if_program_is_invalid():
 def value_error_is_raised_if_input_cannot_be_processed_by_program():
     program = jq(".x")
     try:
-        program.transform(1)
+        program.execute(1).all()
         assert False, "Expected error"
     except ValueError as error:
         expected_error_str = "Cannot index number with string \"x\""
@@ -104,19 +104,19 @@ def value_error_is_raised_if_input_cannot_be_processed_by_program():
 def errors_do_not_leak_between_transformations():
     program = jq(".x")
     try:
-        program.transform(1)
+        program.execute(1).all()
         assert False, "Expected error"
     except ValueError as error:
         pass
     
-    assert_equal(1, program.transform({"x": 1}))
+    assert_equal(1, program.execute({"x": 1}).first())
 
 
 @istest
 def value_error_is_raised_if_input_is_not_valid_json():
     program = jq(".x")
     try:
-        program.transform(text="!!")
+        program.execute(text="!!").first()
         assert False, "Expected error"
     except ValueError as error:
         expected_error_str = "parse error: Invalid numeric literal at EOF at line 1, column 2"
@@ -127,7 +127,7 @@ def value_error_is_raised_if_input_is_not_valid_json():
 def unicode_strings_can_be_used_as_input():
     assert_equal(
         "‽",
-        jq(".").transform(text='"‽"')
+        jq(".").execute(text='"‽"').first()
     )
 
 
@@ -135,5 +135,13 @@ def unicode_strings_can_be_used_as_input():
 def unicode_strings_can_be_used_as_programs():
     assert_equal(
         "Dragon‽",
-        jq('.+"‽"').transform(text='"Dragon"')
+        jq('.+"‽"').execute(text='"Dragon"').first()
+    )
+
+
+@istest
+def can_execute_program_without_intermediate_program():
+    assert_equal(
+        "42",
+        execute(".", "42").first()
     )

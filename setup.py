@@ -37,8 +37,8 @@ oniguruma_lib_install_dir = path_in_dir("onig-install-5.9.6")
 
 class jq_build_ext(build_ext):
     def run(self):
-        self._build_oniguruma()
-        self._build_libjq()
+        #~ self._build_oniguruma()
+        #~ self._build_libjq()
         build_ext.run(self)
     
     def _build_oniguruma(self):

@@ -1,5 +1,7 @@
 import json
 
+from cpython.bytes cimport PyBytes_AsString
+    
 
 cdef extern from "jv.h":
     ctypedef enum jv_kind:
@@ -64,6 +66,8 @@ def jq(object program):
     
     if error_store.has_errors():
         raise ValueError(error_store.error_string())
+
+    # TODO: unset error callback?
     
     if not compiled:
         raise ValueError("program was not valid")
@@ -106,73 +110,89 @@ cdef class _Program(object):
     cdef jq_state* _jq
     cdef _ErrorStore _error_store
 
-    def __dealloc__(self):
-        jq_teardown(&self._jq)
+#~     def __dealloc__(self):
+#~         jq_teardown(&self._jq)
     
-    def transform(self, value=_NO_VALUE, text=_NO_VALUE, text_output=False, multiple_output=False):
+    def execute(self, value=_NO_VALUE, text=_NO_VALUE):
         if (value is _NO_VALUE) == (text is _NO_VALUE):
             raise ValueError("Either the value or text argument should be set")
         string_input = text if text is not _NO_VALUE else json.dumps(value)
-        bytes_input = string_input.encode("utf8")
         
         self._error_store.clear()
         
-        result_bytes = self._string_to_strings(bytes_input)
+        # TODO: handle interleaved calls
         
-        if self._error_store.has_errors():
-            raise ValueError(self._error_store.error_string())
-        
-        result_strings = map(lambda s: s.decode("utf8"), result_bytes)
-        if text_output:
-            return "\n".join(result_strings)
-        elif multiple_output:
-            return [json.loads(s) for s in result_strings]
-        else:
-            return json.loads(next(iter(result_strings)))
+        cdef _Result result = _Result.__new__(_Result)
+        result._execute(self._jq, string_input)
+        return result
 
-    cdef object _string_to_strings(self, char* input):
-        cdef jv_parser* parser = jv_parser_new(0)
-        jv_parser_set_buf(parser, input, len(input), 0)
-        cdef jv value
-        cdef jv error_message
-        results = []
-        while True:
-            value = jv_parser_next(parser)
-            if jv_is_valid(value):
-                self._process(value, results)
-            else:
-                self._handle_invalid_jv(value, b"parse error: ")
-                break
-                
-        jv_parser_free(parser)
-        
-        return results
+
+cdef class _Result(object):
+    cdef jq_state* _jq
+    cdef jv_parser* _parser
+    cdef object _bytes_input
+    cdef bint _ready
+    cdef bint _done
     
-    cdef void _handle_invalid_jv(self, jv value, char* prefix):
-        if jv_invalid_has_msg(jv_copy(value)):
-            error_message = jv_invalid_get_msg(value)
-            full_error_message = prefix + jv_string_value(error_message)
-            self._error_store.store_error(full_error_message)
-            jv_free(error_message)
-        else:
-            jv_free(value)
-        
-
-
-    cdef void _process(self, jv value, object output):
-        cdef int jq_flags = 0
-        
-        jq_start(self._jq, value, jq_flags);
-        cdef jv result
+    cdef void _execute(self, jq_state* jq, object string_input):
+        self._jq = jq
+        self._done = False
+        self._ready = False
+        cdef jv_parser* parser = jv_parser_new(0)
+        self._bytes_input = string_input.encode("utf8")
+        cdef char* cbytes_input = PyBytes_AsString(self._bytes_input)
+        jv_parser_set_buf(parser, cbytes_input, len(cbytes_input), 0)
+        self._parser = parser
+        print("AAA")
+    
+    def __iter__(self):
+        return self
+    
+    def __next__(self):
         cdef int dumpopts = 0
-        cdef jv dumped
-        
         while True:
+            if not self._ready:
+                self._ready_next_input()
+                self._ready = True
+        
             result = jq_next(self._jq)
-            if not jv_is_valid(result):
-                self._handle_invalid_jv(result, b"")
-                return
-            else:
+            if jv_is_valid(result):
                 dumped = jv_dump_string(result, dumpopts)
-                output.append(jv_string_value(dumped))
-                jv_free(dumped)
+                # TODO: __next__ should return json values, not text
+                return jv_string_value(dumped)
+                # TODO: unnecessary?
+                #jv_free(dumped)
+            elif jv_invalid_has_msg(jv_copy(result)):
+                error_message = jv_invalid_get_msg(result)
+                message = jv_string_value(error_message)
+                raise ValueError(message)
+            else:
+                self._ready = False
+        
+    cdef _ready_next_input(self):
+        cdef int jq_flags = 0
+        cdef jv value = jv_parser_next(self._parser)
+        if jv_is_valid(value):
+            jq_start(self._jq, value, jq_flags)
+        elif jv_invalid_has_msg(jv_copy(value)):
+            error_message = jv_invalid_get_msg(value)
+            message = jv_string_value(error_message)
+            raise ValueError(b"parse error: " + message)
+        else:
+            raise StopIteration()
+            
+    def text(self):
+        return "\n".join(self)
+    
+    def all(self):
+        return [
+            json.loads(result_bytes.decode("utf-8"))
+            for result_bytes in self
+        ]
+    
+    def first(self):
+        return self.all()[0]
+
+    
+def execute(program, value=_NO_VALUE, text=_NO_VALUE):
+    return jq(program).execute(value, text=text)
