@@ -72,6 +72,14 @@ def multiple_output_elements_are_returned_if_multiple_output_is_true():
 
 
 @istest
+def can_treat_execute_result_as_iterable():
+    assert_equal(
+        [2, 3, 4],
+        list(jq(".[]+1").execute([1, 2, 3]))
+    )
+
+
+@istest
 def multiple_inputs_in_raw_input_are_separated_by_newlines():
     assert_equal(
         [2, 3, 4],

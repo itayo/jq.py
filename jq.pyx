@@ -143,12 +143,14 @@ cdef class _Result(object):
         cdef char* cbytes_input = PyBytes_AsString(self._bytes_input)
         jv_parser_set_buf(parser, cbytes_input, len(cbytes_input), 0)
         self._parser = parser
-        print("AAA")
     
     def __iter__(self):
         return self
     
     def __next__(self):
+        return json.loads(self._next_string())
+    
+    cdef char* _next_string(self) except NULL:
         cdef int dumpopts = 0
         while True:
             if not self._ready:
@@ -158,7 +160,6 @@ cdef class _Result(object):
             result = jq_next(self._jq)
             if jv_is_valid(result):
                 dumped = jv_dump_string(result, dumpopts)
-                # TODO: __next__ should return json values, not text
                 return jv_string_value(dumped)
                 # TODO: unnecessary?
                 #jv_free(dumped)
@@ -182,13 +183,15 @@ cdef class _Result(object):
             raise StopIteration()
             
     def text(self):
-        return "\n".join(self)
+        results = []
+        while True:
+            try:
+                results.append(self._next_string())
+            except StopIteration:
+                return "\n".join(results)
     
     def all(self):
-        return [
-            json.loads(result_bytes.decode("utf-8"))
-            for result_bytes in self
-        ]
+        return list(self)
     
     def first(self):
         return self.all()[0]
